@@ -95,6 +95,17 @@ void MasterPlugAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    
+    juce::dsp::ProcessSpec spec;
+    
+    spec.maximumBlockSize = samplesPerBlock;
+    
+    spec.numChannels = 1;
+    
+    spec.sampleRate = sampleRate;
+    
+    leftChain.prepare(spec);
+    rightChain.prepare(spec);
 }
 
 void MasterPlugAudioProcessor::releaseResources()
@@ -144,18 +155,17 @@ void MasterPlugAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        auto* channelData = buffer.getWritePointer (channel);
-
-        // ..do something to the data...
-    }
+    juce::dsp::AudioBlock<float> block(buffer);
+    
+    auto leftBlock = block.getSingleChannelBlock(0);
+    auto rightBlock = block.getSingleChannelBlock(1);
+    
+    juce::dsp::ProcessContextReplacing<float> leftContext(leftBlock);
+    juce::dsp::ProcessContextReplacing<float> rightContext(rightBlock);
+    
+    leftChain.process(leftContext);
+    rightChain.process(rightContext);
+    
 }
 
 //==============================================================================
@@ -166,7 +176,8 @@ bool MasterPlugAudioProcessor::hasEditor() const
 
 juce::AudioProcessorEditor* MasterPlugAudioProcessor::createEditor()
 {
-    return new MasterPlugAudioProcessorEditor (*this);
+    //return new MasterPlugAudioProcessorEditor (*this);
+    return new juce::GenericAudioProcessorEditor(*this);
 }
 
 //==============================================================================
@@ -183,6 +194,36 @@ void MasterPlugAudioProcessor::setStateInformation (const void* data, int sizeIn
     // whose contents will have been created by the getStateInformation() call.
 }
 
+//here we add UI components to the front end 
+juce::AudioProcessorValueTreeState::ParameterLayout
+    MasterPlugAudioProcessor::createParameterLayout()
+{
+        juce::AudioProcessorValueTreeState::ParameterLayout layout;
+        
+        layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("LowCut Freq", 1),
+                                                               "LowCut Freq",
+                                                               juce::NormalisableRange<float>(20.f, 20000.f, 1.f,1.f),
+                                                               20.f));
+        
+        layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("HighCut Freq", 2),
+                                                               "HighCut Freq",
+                                                               juce::NormalisableRange<float>(20.f, 20000.f, 1.f,1.f),
+                                                               20000.f));
+        
+        juce::StringArray stringArray;
+        
+        for( int i = 0; i < 4; ++i){
+            juce::String str;
+            str << (12 + i*12);
+            str << " db/Oct";
+            stringArray.add(str);
+        }
+        
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("LowCut Slope", 1), "LowCut Slope", stringArray, 0));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("HighCut Slope", 1), "HighCut Slope", stringArray, 0));
+
+        return layout;
+}
 //==============================================================================
 // This creates new instances of the plugin..
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
